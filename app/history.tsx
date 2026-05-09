@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, StatusBar, Platform,
+  StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, StatusBar, Image,
 } from 'react-native';
 import { useAppContext } from '../context/AppContext';
 
@@ -103,6 +103,17 @@ export default function HistoryScreen() {
                   </View>
                 </View>
 
+                {/* Route Map Image */}
+                {trip.routeImageUri && (
+                  <View style={styles.routeImageContainer}>
+                    <Image
+                      source={{ uri: trip.routeImageUri }}
+                      style={styles.routeImage}
+                      resizeMode="cover"
+                    />
+                  </View>
+                )}
+
                 <View style={styles.tripDetails}>
                   <View style={styles.tripDetailItem}>
                     <Text style={styles.tripDetailLabel}>Start</Text>
@@ -118,6 +129,15 @@ export default function HistoryScreen() {
                     <Text style={styles.tripDetailLabel}>Duration</Text>
                     <Text style={styles.tripDetailValue}>{duration}</Text>
                   </View>
+                  {trip.averageSpeed > 0 && (
+                    <>
+                      <View style={styles.tripDetailDivider} />
+                      <View style={styles.tripDetailItem}>
+                        <Text style={styles.tripDetailLabel}>Avg Speed</Text>
+                        <Text style={styles.tripDetailValue}>{trip.averageSpeed.toFixed(1)}</Text>
+                      </View>
+                    </>
+                  )}
                 </View>
               </TouchableOpacity>
             );
@@ -241,6 +261,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#06b6d4',
+  },
+
+  // Route image
+  routeImageContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  routeImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
 
   tripDetails: {

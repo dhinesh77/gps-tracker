@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Speech from 'expo-speech';
+import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showFloatingWindow, hideFloatingWindow } from '../modules/expo-floating-window';
 
@@ -12,6 +13,7 @@ const TIME_FORMAT_KEY = '@time_format';
 const VOICE_ALERT_KEY = '@voice_alert_freq';
 const CUSTOM_VOICE_ALERT_KEY = '@custom_voice_alert_freq';
 const HISTORY_KEY = '@navigation_history';
+const ROUTE_IMAGES_DIR = `${FileSystem.documentDirectory}route-images/`;
 
 let globalCurrentLocation = null;
 
@@ -36,6 +38,21 @@ const DEFAULT_CARD_SETTINGS = {
   timeRemaining: true,
 };
 
+// Haversine distance in km between two lat/lng points
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 const AppContext = createContext(null);
 
 export function useAppContext() {
@@ -50,6 +67,7 @@ export function AppProvider({ children }) {
   const [routeCoords, setRouteCoords] = useState([]);
   const [distanceKm, setDistanceKm] = useState(0);
   const [speed, setSpeed] = useState(0);
+  const [averageSpeed, setAverageSpeed] = useState(0);
   const [targetDate, setTargetDate] = useState(null);
   const [travelMode, setTravelMode] = useState('driving');
   const [cardSettings, setCardSettings] = useState(DEFAULT_CARD_SETTINGS);
@@ -73,6 +91,32 @@ export function AppProvider({ children }) {
   const locationRef = useRef(null);
   const destinationRef = useRef(null);
   const lastRouteFetchTime = useRef(0);
+
+  // Average speed tracking refs
+  const isNavigatingRef = useRef(false);
+  const prevLocationRef = useRef(null);
+  const navDistanceRef = useRef(0);
+  const navStartTimeRef = useRef(null);
+
+  // Route coords ref for snapshot
+  const routeCoordsRef = useRef([]);
+  useEffect(() => {
+    routeCoordsRef.current = routeCoords;
+  }, [routeCoords]);
+
+  // Ensure route images directory exists
+  useEffect(() => {
+    (async () => {
+      try {
+        const dirInfo = await FileSystem.getInfoAsync(ROUTE_IMAGES_DIR);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(ROUTE_IMAGES_DIR, { intermediates: true });
+        }
+      } catch (e) {
+        console.warn('Failed to create route images directory:', e);
+      }
+    })();
+  }, []);
 
   // Load saved settings
   useEffect(() => {
@@ -98,12 +142,14 @@ export function AppProvider({ children }) {
     })();
   }, []);
 
-  // Calculations
+  // Calculations — use average speed for time remaining
   let timeRemainingStr = '--:--';
   let requiredSpeedStr = '--';
 
-  if (speed > 0 && distanceKm > 0) {
-    const hours = distanceKm / speed;
+  const effectiveSpeed = isNavigating && averageSpeed > 0 ? averageSpeed : speed;
+
+  if (effectiveSpeed > 0 && distanceKm > 0) {
+    const hours = distanceKm / effectiveSpeed;
     const totalSeconds = Math.round(hours * 3600);
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -216,17 +262,57 @@ export function AppProvider({ children }) {
       await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
         (loc) => {
-          setLocation(loc.coords);
-          locationRef.current = loc.coords;
-          setSpeed(loc.coords.speed ? loc.coords.speed * 3.6 : 0);
+          const coords = loc.coords;
+          setLocation(coords);
+          locationRef.current = coords;
+          setSpeed(coords.speed ? coords.speed * 3.6 : 0);
 
-          if (mapRef.current && !destinationRef.current && !isMapScrolled) {
-            mapRef.current.animateToRegion({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              latitudeDelta: 0.05,
-              longitudeDelta: 0.05,
-            });
+          // Average speed accumulation during navigation
+          if (isNavigatingRef.current) {
+            if (prevLocationRef.current) {
+              const delta = haversineDistance(
+                prevLocationRef.current.latitude,
+                prevLocationRef.current.longitude,
+                coords.latitude,
+                coords.longitude
+              );
+              // Only count movement > 3 meters to filter GPS noise
+              if (delta > 0.003) {
+                navDistanceRef.current += delta;
+              }
+            }
+            prevLocationRef.current = { latitude: coords.latitude, longitude: coords.longitude };
+
+            // Calculate average speed
+            if (navStartTimeRef.current && navDistanceRef.current > 0) {
+              const elapsedHours = (Date.now() - navStartTimeRef.current) / (1000 * 60 * 60);
+              if (elapsedHours > 0) {
+                setAverageSpeed(navDistanceRef.current / elapsedHours);
+              }
+            }
+
+            // Camera follow during navigation (Google Maps-like)
+            if (mapRef.current) {
+              mapRef.current.animateCamera({
+                center: {
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
+                },
+                heading: coords.heading && coords.heading >= 0 ? coords.heading : 0,
+                pitch: 60,
+                zoom: 17,
+              }, { duration: 1000 });
+            }
+          } else {
+            // Default: follow user when no destination and map not scrolled
+            if (mapRef.current && !destinationRef.current && !isMapScrolled) {
+              mapRef.current.animateToRegion({
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              });
+            }
           }
         }
       );
@@ -296,12 +382,74 @@ export function AppProvider({ children }) {
   // Navigation history functions
   const startNavigation = () => {
     setIsNavigating(true);
+    isNavigatingRef.current = true;
+
+    // Reset average speed tracking
+    navDistanceRef.current = 0;
+    navStartTimeRef.current = Date.now();
+    prevLocationRef.current = location ? { latitude: location.latitude, longitude: location.longitude } : null;
+    setAverageSpeed(0);
+
     setCurrentTripStart(new Date());
     setCurrentTripDestName(searchQuery || 'Map pin');
+
+    // Auto-collapse dashboard for navigation view
+    setIsPanelVisible(false);
   };
 
   const stopNavigation = async () => {
     setIsNavigating(false);
+    isNavigatingRef.current = false;
+
+    let routeImageUri = null;
+
+    // Try to capture route snapshot
+    if (mapRef.current && routeCoordsRef.current.length > 0) {
+      try {
+        // First fit the map to show the full route
+        const allCoords = [...routeCoordsRef.current];
+        if (locationRef.current) {
+          allCoords.push({
+            latitude: locationRef.current.latitude,
+            longitude: locationRef.current.longitude,
+          });
+        }
+
+        mapRef.current.fitToCoordinates(allCoords, {
+          edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+          animated: true,
+        });
+
+        // Reset camera to flat view
+        setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.animateCamera({
+              pitch: 0,
+              heading: 0,
+            }, { duration: 500 });
+          }
+        }, 300);
+
+        // Wait for animation to settle, then take snapshot
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const snapshot = await mapRef.current.takeSnapshot({
+          format: 'png',
+          quality: 0.7,
+          result: 'file',
+        });
+
+        if (snapshot) {
+          // Copy to persistent storage
+          const fileName = `route_${Date.now()}.png`;
+          const destPath = `${ROUTE_IMAGES_DIR}${fileName}`;
+          await FileSystem.copyAsync({ from: snapshot, to: destPath });
+          routeImageUri = destPath;
+        }
+      } catch (e) {
+        console.warn('Failed to capture route snapshot:', e);
+      }
+    }
 
     if (currentTripStart && destination) {
       const trip = {
@@ -313,6 +461,8 @@ export function AppProvider({ children }) {
         startCoords: location ? { latitude: location.latitude, longitude: location.longitude } : null,
         distance: distanceKm,
         travelMode: travelMode,
+        averageSpeed: averageSpeed,
+        routeImageUri: routeImageUri,
       };
 
       const updatedHistory = [trip, ...navigationHistory];
@@ -325,11 +475,29 @@ export function AppProvider({ children }) {
       }
     }
 
+    // Reset tracking state
     setCurrentTripStart(null);
     setCurrentTripDestName('');
+    navDistanceRef.current = 0;
+    navStartTimeRef.current = null;
+    prevLocationRef.current = null;
+    setAverageSpeed(0);
+
+    // Re-show dashboard
+    setIsPanelVisible(true);
   };
 
   const deleteHistoryItem = async (id) => {
+    // Also delete the route image if it exists
+    const item = navigationHistory.find(h => h.id === id);
+    if (item?.routeImageUri) {
+      try {
+        await FileSystem.deleteAsync(item.routeImageUri, { idempotent: true });
+      } catch (e) {
+        console.warn('Failed to delete route image:', e);
+      }
+    }
+
     const updated = navigationHistory.filter(item => item.id !== id);
     setNavigationHistory(updated);
     try {
@@ -340,6 +508,15 @@ export function AppProvider({ children }) {
   };
 
   const clearAllHistory = async () => {
+    // Delete all route images
+    for (const trip of navigationHistory) {
+      if (trip.routeImageUri) {
+        try {
+          await FileSystem.deleteAsync(trip.routeImageUri, { idempotent: true });
+        } catch (e) {}
+      }
+    }
+
     setNavigationHistory([]);
     try {
       await AsyncStorage.removeItem(HISTORY_KEY);
@@ -355,18 +532,36 @@ export function AppProvider({ children }) {
     setSearchQuery('');
     setTargetDate(null);
     setIsNavigating(false);
+    isNavigatingRef.current = false;
     setCurrentTripStart(null);
     setCurrentTripDestName('');
+    navDistanceRef.current = 0;
+    navStartTimeRef.current = null;
+    prevLocationRef.current = null;
+    setAverageSpeed(0);
   };
 
   const recenterMap = () => {
     if (location && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      });
+      if (isNavigating) {
+        // During navigation, recenter with navigation camera
+        mapRef.current.animateCamera({
+          center: {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          },
+          heading: location.heading && location.heading >= 0 ? location.heading : 0,
+          pitch: 60,
+          zoom: 17,
+        }, { duration: 500 });
+      } else {
+        mapRef.current.animateToRegion({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+      }
       setIsMapScrolled(false);
     }
   };
@@ -378,6 +573,7 @@ export function AppProvider({ children }) {
     routeCoords, setRouteCoords,
     distanceKm, setDistanceKm,
     speed, setSpeed,
+    averageSpeed,
     targetDate, setTargetDate,
     travelMode, setTravelMode,
 

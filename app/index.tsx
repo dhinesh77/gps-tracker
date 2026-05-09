@@ -9,7 +9,7 @@ import * as Location from 'expo-location';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAppContext } from '../context/AppContext';
 
-const GOOGLE_PLACES_API_KEY = 'AIzaSyApAp92I0LS3OromIktO9YprdBjjQorWII';
+const TAB_BAR_HEIGHT = 64;
 
 export default function DashboardScreen() {
   const ctx = useAppContext();
@@ -20,7 +20,7 @@ export default function DashboardScreen() {
 
   const {
     location, destination, setDestination, routeCoords,
-    distanceKm, speed, targetDate, setTargetDate,
+    distanceKm, speed, averageSpeed, targetDate, setTargetDate,
     travelMode, setTravelMode, searchQuery, setSearchQuery,
     isNavigating, isPanelVisible, setIsPanelVisible,
     isMapScrolled, setIsMapScrolled,
@@ -39,12 +39,13 @@ export default function DashboardScreen() {
   };
 
   const handleMapPress = (e) => {
+    if (isNavigating) return; // Don't set destination while navigating
     setDestination(e.nativeEvent.coordinate);
     setSuggestions([]);
     setShowSuggestions(false);
   };
 
-  // Fetch autocomplete suggestions from Google Places API
+  // Fetch autocomplete suggestions from Nominatim (OpenStreetMap) — free, no API key
   const fetchSuggestions = useCallback((text) => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
@@ -56,15 +57,28 @@ export default function DashboardScreen() {
 
     debounceTimer.current = setTimeout(async () => {
       try {
-        const locationBias = location
-          ? `&location=${location.latitude},${location.longitude}&radius=50000`
+        const viewbox = location
+          ? `&viewbox=${location.longitude - 0.5},${location.latitude + 0.5},${location.longitude + 0.5},${location.latitude - 0.5}&bounded=0`
           : '';
-        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_PLACES_API_KEY}${locationBias}`;
-        const response = await fetch(url);
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=5&addressdetails=1${viewbox}`;
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'GPSTrackerApp/1.0',
+            'Accept-Language': 'en',
+          },
+        });
         const data = await response.json();
 
-        if (data.status === 'OK' && data.predictions) {
-          setSuggestions(data.predictions.slice(0, 5));
+        if (data && data.length > 0) {
+          const mapped = data.map((item, idx) => ({
+            id: item.place_id || idx.toString(),
+            display_name: item.display_name,
+            name: item.name || item.display_name.split(',')[0],
+            secondary: item.display_name.split(',').slice(1, 3).join(',').trim(),
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon),
+          }));
+          setSuggestions(mapped);
           setShowSuggestions(true);
         } else {
           setSuggestions([]);
@@ -73,37 +87,25 @@ export default function DashboardScreen() {
       } catch (e) {
         console.warn('Autocomplete error:', e);
       }
-    }, 300);
+    }, 400);
   }, [location]);
 
-  // Handle selecting a suggestion
-  const selectSuggestion = async (placeId, description) => {
+  // Handle selecting a suggestion — Nominatim returns lat/lon directly
+  const selectSuggestion = (item) => {
     setSuggestions([]);
     setShowSuggestions(false);
-    setSearchQuery(description);
+    setSearchQuery(item.display_name);
     Keyboard.dismiss();
 
-    try {
-      // Get place details for coordinates
-      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry&key=${GOOGLE_PLACES_API_KEY}`;
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.status === 'OK' && data.result?.geometry?.location) {
-        const { lat, lng } = data.result.geometry.location;
-        const dest = { latitude: lat, longitude: lng };
-        setDestination(dest);
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: lat,
-            longitude: lng,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Place details error:', e);
+    const dest = { latitude: item.lat, longitude: item.lon };
+    setDestination(dest);
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: item.lat,
+        longitude: item.lon,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
     }
   };
 
@@ -143,6 +145,9 @@ export default function DashboardScreen() {
 
   const hasAnyChanges = destination !== null || targetDate !== null || searchQuery.trim() !== '';
 
+  // Display speed: show average during navigation, current otherwise
+  const displaySpeed = isNavigating && averageSpeed > 0 ? averageSpeed : speed;
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -179,9 +184,42 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           )}
 
-          {hasAnyChanges && (
+          {hasAnyChanges && !isNavigating && (
             <TouchableOpacity onPress={resetAll} style={styles.clearBtn}>
               <Text style={{ fontSize: 12, color: 'white', fontWeight: 'bold' }}>✖ CLEAR ALL</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Floating Navigation Info Bar — shown during active navigation */}
+          {isNavigating && (
+            <TouchableOpacity
+              style={styles.navInfoBar}
+              onPress={() => setIsPanelVisible(true)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.navInfoItem}>
+                <Text style={styles.navInfoLabel}>Speed</Text>
+                <Text style={styles.navInfoValue}>{displaySpeed.toFixed(1)}</Text>
+                <Text style={styles.navInfoUnit}>km/h</Text>
+              </View>
+              <View style={styles.navInfoDivider} />
+              <View style={styles.navInfoItem}>
+                <Text style={styles.navInfoLabel}>Distance</Text>
+                <Text style={styles.navInfoValue}>{distanceKm.toFixed(1)}</Text>
+                <Text style={styles.navInfoUnit}>km</Text>
+              </View>
+              <View style={styles.navInfoDivider} />
+              <View style={styles.navInfoItem}>
+                <Text style={styles.navInfoLabel}>ETA</Text>
+                <Text style={styles.navInfoValueSmall}>{timeRemainingStr}</Text>
+              </View>
+              <View style={styles.navInfoDivider} />
+              <TouchableOpacity
+                style={styles.navStopBtn}
+                onPress={stopNavigation}
+              >
+                <Text style={styles.navStopText}>🛑</Text>
+              </TouchableOpacity>
             </TouchableOpacity>
           )}
 
@@ -217,21 +255,21 @@ export default function DashboardScreen() {
                     <View style={styles.suggestionsContainer}>
                       {suggestions.map((item, index) => (
                         <TouchableOpacity
-                          key={item.place_id}
+                          key={item.id}
                           style={[
                             styles.suggestionItem,
                             index < suggestions.length - 1 && styles.suggestionDivider,
                           ]}
-                          onPress={() => selectSuggestion(item.place_id, item.description)}
+                          onPress={() => selectSuggestion(item)}
                           activeOpacity={0.6}
                         >
                           <Text style={styles.suggestionIcon}>📍</Text>
                           <View style={styles.suggestionTextContainer}>
                             <Text style={styles.suggestionMainText} numberOfLines={1}>
-                              {item.structured_formatting?.main_text || item.description}
+                              {item.name}
                             </Text>
                             <Text style={styles.suggestionSecondaryText} numberOfLines={1}>
-                              {item.structured_formatting?.secondary_text || ''}
+                              {item.secondary}
                             </Text>
                           </View>
                         </TouchableOpacity>
@@ -256,8 +294,8 @@ export default function DashboardScreen() {
 
                 <View style={styles.metricsGrid}>
                   <View style={styles.metricCard}>
-                    <Text style={styles.label}>Speed</Text>
-                    <Text style={styles.value}>{speed.toFixed(1)} <Text style={styles.unit}>km/h</Text></Text>
+                    <Text style={styles.label}>Speed{isNavigating ? ' (avg)' : ''}</Text>
+                    <Text style={styles.value}>{displaySpeed.toFixed(1)} <Text style={styles.unit}>km/h</Text></Text>
                   </View>
                   <View style={styles.metricCard}>
                     <Text style={styles.label}>Distance</Text>
@@ -305,9 +343,11 @@ export default function DashboardScreen() {
               </ScrollView>
               </>
             ) : (
-              <TouchableOpacity onPress={() => setIsPanelVisible(true)} style={styles.pullTabBtn}>
-                <Text style={{ fontSize: 22 }}>▶️</Text>
-              </TouchableOpacity>
+              !isNavigating && (
+                <TouchableOpacity onPress={() => setIsPanelVisible(true)} style={styles.pullTabBtn}>
+                  <Text style={{ fontSize: 22 }}>▶️</Text>
+                </TouchableOpacity>
+              )
             )}
           </View>
         </View>
@@ -318,7 +358,7 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  map: { width: Dimensions.get('window').width, height: Dimensions.get('window').height },
+  map: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   myLocationBtn: {
     position: 'absolute', top: (StatusBar.currentHeight || 44) + 10, right: 20,
@@ -334,17 +374,81 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center', alignItems: 'center', elevation: 5,
   },
+
+  // Floating Navigation Info Bar
+  navInfoBar: {
+    position: 'absolute',
+    bottom: TAB_BAR_HEIGHT + 12,
+    left: 12, right: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+    elevation: 10,
+  },
+  navInfoItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  navInfoLabel: {
+    fontSize: 9,
+    color: '#64748b',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  navInfoValue: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  navInfoValueSmall: {
+    fontSize: 13,
+    color: '#06b6d4',
+    fontWeight: 'bold',
+  },
+  navInfoUnit: {
+    fontSize: 9,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  navInfoDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 4,
+  },
+  navStopBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  navStopText: {
+    fontSize: 18,
+  },
+
   dashboard: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    position: 'absolute', bottom: TAB_BAR_HEIGHT, left: 0, right: 0,
     backgroundColor: 'rgba(15, 23, 42, 0.92)', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18,
     borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', borderBottomWidth: 0,
-    maxHeight: Dimensions.get('window').height * 0.7,
+    maxHeight: Dimensions.get('window').height * 0.55,
   },
   dashboardScroll: {
     flexGrow: 0,
   },
   dashboardCollapsed: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)', width: 64, height: 64, bottom: 10, left: 'auto', right: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)', width: 64, height: 64,
+    bottom: TAB_BAR_HEIGHT + 12, left: 'auto', right: 20,
     padding: 0, borderRadius: 32, justifyContent: 'center', alignItems: 'center',
     borderWidth: 1, borderColor: '#06b6d4', elevation: 10,
   },

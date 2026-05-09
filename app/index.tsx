@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import {
   StyleSheet, Text, View, TextInput, TouchableOpacity,
   Dimensions, Platform, KeyboardAvoidingView, Keyboard,
-  TouchableWithoutFeedback, Alert, FlatList, StatusBar,
+  TouchableWithoutFeedback, Alert, ScrollView, StatusBar,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -195,7 +195,8 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <View style={{ zIndex: 10 }}>
+              <ScrollView style={styles.dashboardScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true}>
+                <View style={{ zIndex: 10, marginBottom: 12 }}>
                   <View style={styles.searchRow}>
                     <TextInput
                       style={styles.searchInput}
@@ -301,7 +302,7 @@ export default function DashboardScreen() {
                     </Text>
                   </TouchableOpacity>
                 )}
-              </>
+              </ScrollView>
             ) : (
               <TouchableOpacity onPress={() => setIsPanelVisible(true)} style={styles.pullTabBtn}>
                 <Text style={{ fontSize: 22 }}>▶️</Text>
@@ -336,6 +337,10 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: 'rgba(15, 23, 42, 0.92)', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18,
     borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)', borderBottomWidth: 0,
+    maxHeight: Dimensions.get('window').height * 0.7,
+  },
+  dashboardScroll: {
+    flexGrow: 0,
   },
   dashboardCollapsed: {
     backgroundColor: 'rgba(15, 23, 42, 0.85)', width: 64, height: 64, bottom: 10, left: 'auto', right: 20,
@@ -354,14 +359,14 @@ const styles = StyleSheet.create({
 
   // Suggestions dropdown
   suggestionsContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.97)',
+    backgroundColor: 'rgba(30, 41, 59, 0.98)',
     borderRadius: 14,
     marginTop: 6,
-    marginBottom: 4,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     overflow: 'hidden',
-    elevation: 8,
+    elevation: 10,
   },
   suggestionItem: {
     flexDirection: 'row',

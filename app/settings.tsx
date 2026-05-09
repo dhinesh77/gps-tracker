@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  StyleSheet, Text, View, TouchableOpacity, ScrollView, Switch, TextInput, Modal, Linking,
+  StyleSheet, Text, View, TouchableOpacity, ScrollView, Switch, TextInput, Modal, Linking, StatusBar, Platform,
 } from 'react-native';
 import { useAppContext } from '../context/AppContext';
 
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
   },
   header: {
-    paddingTop: 56,
+    paddingTop: (StatusBar.currentHeight || 44) + 16,
     paddingHorizontal: 24,
     paddingBottom: 20,
     borderBottomWidth: 1,

@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import {
   StyleSheet, Text, View, TextInput, TouchableOpacity,
   Dimensions, Platform, KeyboardAvoidingView, Keyboard,
-  TouchableWithoutFeedback, Alert, FlatList,
+  TouchableWithoutFeedback, Alert, FlatList, StatusBar,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -319,14 +319,14 @@ const styles = StyleSheet.create({
   map: { width: Dimensions.get('window').width, height: Dimensions.get('window').height },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   myLocationBtn: {
-    position: 'absolute', top: 20, right: 20,
+    position: 'absolute', top: (StatusBar.currentHeight || 44) + 10, right: 20,
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
     padding: 12, borderRadius: 28,
     borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center', alignItems: 'center', elevation: 5,
   },
   clearBtn: {
-    position: 'absolute', top: 20, left: 20,
+    position: 'absolute', top: (StatusBar.currentHeight || 44) + 10, left: 20,
     backgroundColor: 'rgba(225, 29, 72, 0.85)',
     paddingVertical: 10, paddingHorizontal: 14, borderRadius: 20,
     borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)',

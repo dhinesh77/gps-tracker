@@ -303,6 +303,7 @@ export default function DashboardScreen() {
                   </TouchableOpacity>
                 )}
               </ScrollView>
+              </>
             ) : (
               <TouchableOpacity onPress={() => setIsPanelVisible(true)} style={styles.pullTabBtn}>
                 <Text style={{ fontSize: 22 }}>▶️</Text>

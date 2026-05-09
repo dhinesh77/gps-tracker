@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="expo.modules.floatingwindow">
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    
+    <application>
+        <service android:name=".FloatingWindowService" android:enabled="true" android:exported="false" android:foregroundServiceType="specialUse" />
+    </application>
+</manifest>

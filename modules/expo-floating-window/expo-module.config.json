@@ -1,0 +1,6 @@
+{
+  "name": "ExpoFloatingWindow",
+  "android": {
+    "modules": ["expo.modules.floatingwindow.ExpoFloatingWindowModule"]
+  }
+}

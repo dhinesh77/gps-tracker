@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "gps-tracker-app",
+    "slug": "gps-tracker-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/react-logo.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/react-logo.png",
+        "backgroundColor": "#0f172a"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyApAp92I0LS3OromIktO9YprdBjjQorWII"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "SYSTEM_ALERT_WINDOW"
+      ],
+      "package": "com.dhinesh77.gpstrackerapp"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow this app to use your location in the background to track distance and speed while minimized."
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a105ff33-43af-4a03-86d3-a03ccaeb84b1"
+      }
+    }
+  }
+}
